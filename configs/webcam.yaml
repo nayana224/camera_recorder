@@ -1,0 +1,23 @@
+# Sunplus "FHD Camera Microphone" USB webcam.
+backend: webcam
+
+# Use a /dev/v4l/by-id path: /dev/videoN numbers shift when another camera
+# (RealSense especially) is plugged in. `camrec list` prints the options.
+device: /dev/v4l/by-id/usb-SunplusIT_Inc_FHD_Camera_Microphone_01.00.00-video-index0
+
+# Saved as the camera's own MJPEG stream, without re-encoding.
+width: 1920
+height: 1080
+fps: 30
+
+# Applied in order with v4l2-ctl before capture. Empty keeps the camera's auto
+# modes. To fix the look for an experiment, turn each auto mode off first:
+#
+# controls:
+#   auto_exposure: 1                  # 1 = manual, 3 = auto
+#   exposure_time_absolute: 166
+#   white_balance_automatic: 0
+#   white_balance_temperature: 4600
+#   focus_automatic_continuous: 0
+#   focus_absolute: 510
+controls: {}

@@ -1,0 +1,8 @@
+# Intel RealSense. Saved as a .bag holding the color and depth streams.
+backend: realsense
+
+# null uses the first connected device.
+serial: null
+
+color: {width: 1280, height: 720, fps: 30}
+depth: {width: 1280, height: 720, fps: 30}
