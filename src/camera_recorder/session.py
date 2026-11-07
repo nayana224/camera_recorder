@@ -9,7 +9,7 @@ from pathlib import Path
 
 import cv2
 
-from camera_recorder.cameras import Camera
+from camera_recorder.cameras import Camera, CameraError
 
 WINDOW = "camrec"
 KEY_ESC = 27
@@ -22,7 +22,7 @@ class Session:
     monotonic_start: float
 
 
-def _start(camera: Camera, root: Path, name: str, label: str | None) -> Session:
+def start_session(camera: Camera, root: Path, name: str, label: str | None) -> Session:
     now = datetime.now().astimezone()
     folder = now.strftime("%Y%m%d_%H%M%S")
     if label:
@@ -39,19 +39,24 @@ def _start(camera: Camera, root: Path, name: str, label: str | None) -> Session:
     return Session(path, now.isoformat(timespec="milliseconds"), time.monotonic())
 
 
-def _stop(camera: Camera, session: Session, name: str, label: str | None) -> None:
+def stop_session(camera: Camera, session: Session, name: str, label: str | None) -> dict:
     stats = camera.stop_recording()
+    try:
+        device = camera.describe()
+    except CameraError as e:  # an unplugged camera must not cost the metadata
+        device = {"error": str(e)}
     metadata = {
         "camera": name,
         "label": label,
         "started_at": session.started_at,
         "stopped_at": datetime.now().astimezone().isoformat(timespec="milliseconds"),
         "config": camera.config,
-        "device": camera.describe(),
+        "device": device,
         "stats": stats,
     }
     (session.path / "metadata.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
     print(f"saved -> {session.path}\n  {json.dumps(stats)}", flush=True)
+    return stats
 
 
 def run(
@@ -68,7 +73,7 @@ def run(
     camera.open()
     try:
         if duration is not None or not show_preview:
-            session = _start(camera, root, name, label)
+            session = start_session(camera, root, name, label)
         if show_preview:
             print("Space: start/stop recording, q or Esc: quit", flush=True)
         elif duration is None:
@@ -102,16 +107,16 @@ def run(
                 break
             if key == ord(" "):
                 if session:
-                    _stop(camera, session, name, label)
+                    stop_session(camera, session, name, label)
                     session = None
                 else:
-                    session = _start(camera, root, name, label)
+                    session = start_session(camera, root, name, label)
     except KeyboardInterrupt:
         pass
     finally:
         try:
             if session:
-                _stop(camera, session, name, label)
+                stop_session(camera, session, name, label)
         finally:
             camera.close()
             if window_open:

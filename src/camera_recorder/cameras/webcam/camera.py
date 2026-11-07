@@ -4,6 +4,7 @@ Packets are stored as the camera produced them, so recording costs no CPU and
 no image quality. Only the preview decodes frames.
 """
 
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -12,17 +13,41 @@ import av
 import cv2
 import numpy as np
 
-from camera_recorder.cameras.base import Camera, CameraError
+from camera_recorder.cameras.base import Camera, CameraError, Device, Mode
 
 BY_ID = Path("/dev/v4l/by-id")
+BY_PATH = Path("/dev/v4l/by-path")
+SYSFS = Path("/sys/class/video4linux")
+CAPTURE_NODE = "*-video-index0"
 READ_TIMEOUT_S = 5.0
 
 
 def _v4l2_ctl(*args: str) -> str:
-    result = subprocess.run(["v4l2-ctl", *args], capture_output=True, text=True)
+    try:
+        result = subprocess.run(["v4l2-ctl", *args], capture_output=True, text=True)
+    except FileNotFoundError as e:
+        raise CameraError("v4l2-ctl is missing: install v4l-utils") from e
     if result.returncode != 0:
         raise CameraError(f"v4l2-ctl {' '.join(args)}: {result.stderr.strip()}")
     return result.stdout
+
+
+def _mjpeg_modes(device: Path) -> list[Mode]:
+    """Return the modes recording can use: it stores MJPEG, so only those."""
+    modes = []
+    is_mjpeg = False
+    size = None
+    for line in _v4l2_ctl("-d", str(device), "--list-formats-ext").splitlines():
+        if match := re.search(r"\[\d+\]: '(.+?)'", line):
+            is_mjpeg = match[1] == "MJPG"
+        elif not is_mjpeg:
+            continue
+        elif match := re.search(r"Size: Discrete (\d+)x(\d+)", line):
+            size = int(match[1]), int(match[2])
+        elif match := re.search(r"\(([\d.]+) fps\)", line):
+            fps = float(match[1])
+            modes.append(Mode(*size, int(fps) if fps.is_integer() else fps))
+    return sorted(modes)
 
 
 class _Writer:
@@ -92,14 +117,27 @@ class WebcamCamera(Camera):
         self._error = None
 
     @classmethod
-    def discover(cls) -> list[str]:
-        if not BY_ID.is_dir():
-            return []
-        return [
-            f"{link} -> {link.resolve()}"
-            for link in sorted(BY_ID.glob("*-video-index0"))
-            if "realsense" not in link.name.lower()
-        ]
+    def discover(cls) -> list[Device]:
+        # by-id survives moving to another USB port, but identical webcams share
+        # one by-id link. Those fall back to their by-path link.
+        links = {link.resolve(): link for link in sorted(BY_PATH.glob(CAPTURE_NODE))}
+        links |= {link.resolve(): link for link in BY_ID.glob(CAPTURE_NODE)}
+
+        devices = []
+        for node, link in sorted(links.items()):
+            name = (SYSFS / node.name / "name").read_text().split(":")[0].strip()
+            if "realsense" in name.lower():
+                continue
+            devices.append(Device("webcam", name, str(node), {"device": str(link)}, _mjpeg_modes(node)))
+        return devices
+
+    @classmethod
+    def matches(cls, config: dict, device: Device) -> bool:
+        return Path(config["device"]).resolve() == Path(device.config["device"]).resolve()
+
+    @classmethod
+    def mode_config(cls, mode: Mode) -> dict:
+        return {"width": mode.width, "height": mode.height, "fps": mode.fps}
 
     def open(self) -> None:
         if not Path(self._device).exists():

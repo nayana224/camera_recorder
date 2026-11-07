@@ -1,4 +1,4 @@
-"""Command line entry point: `camrec list` and `camrec record`."""
+"""Command line entry point: `camrec`, followed by one of the commands below."""
 
 import argparse
 import sys
@@ -6,6 +6,7 @@ from pathlib import Path
 
 import yaml
 
+from camera_recorder import desktop
 from camera_recorder.cameras import BACKENDS, CameraError, load_backend
 from camera_recorder.session import run
 
@@ -51,6 +52,12 @@ def _record(args: argparse.Namespace) -> None:
     )
 
 
+def _gui(args: argparse.Namespace) -> None:
+    from camera_recorder.gui import run as run_gui  # Qt loads only for this command
+
+    run_gui(args.root)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="camrec", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -64,9 +71,24 @@ def main() -> None:
     record.add_argument("--no-preview", action="store_true", help="no window; record at once")
     record.add_argument("--root", type=Path, default=RECORDINGS_DIR, help="recordings folder")
 
+    gui = commands.add_parser("gui", help="scan, preview and record from a window")
+    gui.add_argument("--root", type=Path, default=RECORDINGS_DIR, help="recordings folder")
+
+    commands.add_parser("install-app", help="add Camera Recorder to the desktop's app menu")
+    commands.add_parser("uninstall-app", help="remove it from the app menu")
+
     args = parser.parse_args()
     try:
-        _list() if args.command == "list" else _record(args)
+        if args.command == "list":
+            _list()
+        elif args.command == "record":
+            _record(args)
+        elif args.command == "gui":
+            _gui(args)
+        elif args.command == "install-app":
+            desktop.install()
+        else:
+            desktop.uninstall()
     except CameraError as e:
         sys.exit(f"error: {e}")
 

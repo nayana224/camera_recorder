@@ -2,7 +2,7 @@
 
 import importlib
 
-from camera_recorder.cameras.base import Camera, CameraError
+from camera_recorder.cameras.base import Camera, CameraError, Device, Mode
 
 # Imported on demand so a missing SDK only affects its own backend.
 BACKENDS = {

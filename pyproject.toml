@@ -8,6 +8,7 @@ dependencies = [
     "av>=14",
     "numpy>=1.26",
     "opencv-python>=4.10",
+    "pyside6-essentials>=6.7",
     "pyyaml>=6",
 ]
 

@@ -8,12 +8,22 @@ from pathlib import Path
 
 import numpy as np
 
-from camera_recorder.cameras.base import Camera, CameraError
+from camera_recorder.cameras.base import Camera, CameraError, Device, Mode
 
 try:
     import pyrealsense2 as rs
 except ImportError as e:
     raise CameraError("pyrealsense2 is missing: run `uv sync --extra realsense`") from e
+
+
+def _stream_modes(device, stream, stream_format) -> set[Mode]:
+    modes = set()
+    for sensor in device.query_sensors():
+        for profile in sensor.get_stream_profiles():
+            if profile.stream_type() == stream and profile.format() == stream_format:
+                video = profile.as_video_stream_profile()
+                modes.add(Mode(video.width(), video.height(), profile.fps()))
+    return modes
 
 
 class RealSenseCamera(Camera):
@@ -23,11 +33,26 @@ class RealSenseCamera(Camera):
         self._info = {}
 
     @classmethod
-    def discover(cls) -> list[str]:
-        return [
-            f"{d.get_info(rs.camera_info.name)} (serial {d.get_info(rs.camera_info.serial_number)})"
-            for d in rs.context().query_devices()
-        ]
+    def discover(cls) -> list[Device]:
+        devices = []
+        for device in rs.context().query_devices():
+            serial = device.get_info(rs.camera_info.serial_number)
+            # One mode drives both streams, so offer what color and depth share.
+            modes = _stream_modes(device, rs.stream.color, rs.format.bgr8)
+            modes &= _stream_modes(device, rs.stream.depth, rs.format.z16)
+            name = device.get_info(rs.camera_info.name)
+            devices.append(Device("realsense", name, serial, {"serial": serial}, sorted(modes)))
+        return devices
+
+    @classmethod
+    def matches(cls, config: dict, device: Device) -> bool:
+        serial = config.get("serial")
+        return serial is None or str(serial) == device.config["serial"]
+
+    @classmethod
+    def mode_config(cls, mode: Mode) -> dict:
+        stream = {"width": mode.width, "height": mode.height, "fps": mode.fps}
+        return {"color": stream, "depth": stream}
 
     def _start(self, bag: Path | None = None) -> None:
         rs_config = rs.config()
